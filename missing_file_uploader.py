@@ -67,7 +67,7 @@ def check_file_in_bucket(file_name, file_list):
     return file_name in file_list
 
 
-def upload_missing_files(missing_files, directory_path, bucket, bucket_dir):
+def upload_missing_files(missing_files, directory_path, bucket, bucket_dir, file_extension):
     """
     Upload missing files to Supabase storage.
 
@@ -78,7 +78,7 @@ def upload_missing_files(missing_files, directory_path, bucket, bucket_dir):
         bucket_dir (str): Directory path in the bucket to upload files to.
     """
     for file_id in missing_files:
-        file_name = f"{file_id}.txt"
+        file_name = f"{file_id}.{file_extension}"
         local_file_path = os.path.join(directory_path, file_name)
 
         # Check if the file exists in the local path
@@ -108,7 +108,7 @@ def upload_missing_files(missing_files, directory_path, bucket, bucket_dir):
             print(f"File {file_name} not found in local directory '{directory_path}'.")
 
 
-def get_missing_files_from_csv(csv_path, file_list):
+def get_missing_files_from_csv(csv_path, file_list, file_extension):
     """
     Identify missing files by comparing IDs in a CSV file against the bucket file list.
 
@@ -129,7 +129,7 @@ def get_missing_files_from_csv(csv_path, file_list):
                 if not id_value:
                     continue
 
-                file_name = f"{id_value}.txt"
+                file_name = f"{id_value}.{file_extension}"
                 if not check_file_in_bucket(file_name, file_list):
                     missing_ids.append(id_value)
     except Exception as e:
@@ -139,10 +139,12 @@ def get_missing_files_from_csv(csv_path, file_list):
 
 
 if __name__ == "__main__":
-    bucket = "fanfiction"
-    bucket_dir = "supernatural"
+    bucket = "archiveofourown"
+    bucket_dir = "harry_potter"
     # Specify the path to your CSV file
-    csv_file_path = "supernatural_fanfiction_db.csv"
+    csv_file_path = "hp_ao3_db.csv"
+
+    file_extension = "epub"
 
     # Fetch the list of files in the bucket
     bucket_file_list = fetch_file_list_from_bucket(bucket, bucket_dir)
@@ -152,7 +154,7 @@ if __name__ == "__main__":
         exit()
 
     # Identify missing files
-    missing_file_ids = get_missing_files_from_csv(csv_file_path, bucket_file_list)
+    missing_file_ids = get_missing_files_from_csv(csv_file_path, bucket_file_list, file_extension)
 
     # Print IDs that do not have a corresponding file
     if missing_file_ids:
@@ -166,7 +168,9 @@ if __name__ == "__main__":
             retry_directory = input("Enter the directory path to retry uploading from: ").strip()
 
             if os.path.isdir(retry_directory):
-                upload_missing_files(missing_file_ids, retry_directory, bucket, bucket_dir)
+                upload_missing_files(
+                    missing_file_ids, retry_directory, bucket, bucket_dir, file_extension
+                )
             else:
                 print(f"Invalid directory path: {retry_directory}")
         else:
