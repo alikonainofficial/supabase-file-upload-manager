@@ -26,7 +26,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def fetch_file_list_from_bucket(bucket, bucket_dir, limit=10000):
+def fetch_file_list_from_bucket(bucket, bucket_dir, limit=11000):
     """
     Fetch the list of files in a specific Supabase storage bucket directory.
 
@@ -140,9 +140,9 @@ def get_missing_files_from_csv(csv_path, file_list, file_extension):
 
 if __name__ == "__main__":
     bucket = "archiveofourown"
-    bucket_dir = "harry_potter"
+    bucket_dir = "contents"
     # Specify the path to your CSV file
-    csv_file_path = "hp_ao3_db.csv"
+    csv_file_path = "csv_file.csv"
 
     file_extension = "epub"
 
