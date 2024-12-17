@@ -91,8 +91,8 @@ This script allows for the deletion of all files within a specified folder in a 
 
 ### File Check and Upload Script
 
-- `fetch_file_list_from_bucket(bucket, bucket_dir)`: Retrieves the list of files in the specified bucket directory.
-- `get_missing_files_from_csv(csv_path, file_list)`: Compares the IDs in the CSV with the fetched file list to identify missing files.
+- `fetch_file_list_from_bucket(bucket, bucket_dir)`: Retrieves the list of files in the specified bucket directory. The return type is a tuple of two lists. `available_files` is the list of all the files in the bucket. `zero_byte_files` is the list of files that have 0 size.
+- `get_missing_files_from_csv(csv_path, file_list)`: Compares the IDs in the CSV with the fetched file lists to identify missing files.
 - `upload_missing_files(missing_files, directory_path, bucket, bucket_dir)`: Uploads missing files to the specified bucket directory.
 - `check_file_in_bucket(file_name, file_list)`: Checks if a specific file exists in the fetched file list.
 

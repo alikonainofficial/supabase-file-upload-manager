@@ -26,7 +26,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def fetch_file_list_from_bucket(bucket, bucket_dir, limit=11000):
+def fetch_file_list_from_bucket(bucket, bucket_dir, limit=10000):
     """
     Fetch the list of files in a specific Supabase storage bucket directory.
 
@@ -39,32 +39,54 @@ def fetch_file_list_from_bucket(bucket, bucket_dir, limit=11000):
         set: A set containing filenames from the specified bucket directory.
     """
     try:
-        response = supabase.storage.from_(bucket).list(bucket_dir, {"limit": limit})
-        if not response:
-            print("Failed to fetch files from Supabase storage or no files found.")
-            return set()
+        available_files = set()
+        zero_byte_files = set()
+        offset = 0
+        while True:
+            response = supabase.storage.from_(bucket).list(
+                bucket_dir, {"limit": limit, "offset": offset}
+            )
+            if not response:
+                print(f"Stopping fetch: No more files found.")
+                break
 
-        available_files = {item["name"] for item in response}
-        print(f"Fetched {len(available_files)} files from Supabase storage.")
-        return available_files
+            # Check file sizes and add zero-byte files
+            for item in response:
+                if item.get("metadata") and item.get("metadata").get("size", 0) == 0:
+                    zero_byte_files.add(item.get("name", ""))
+                available_files.add(item.get("name", ""))
+
+            print(f"Fetched {len(response)} files (offset: {offset}).")
+
+            # Stop if fewer files than the limit were returned (end of results)
+            if len(response) < limit:
+                break
+
+            # Increment the offset for the next page
+            offset += limit
+
+        print(f"Fetched a total of {len(available_files)} files from Supabase storage.")
+        return available_files, zero_byte_files
+
     except Exception as e:
         print(f"Error fetching files from bucket: {e}")
-        return set()
+        return set(), set()
 
 
-def check_file_in_bucket(file_name, file_list):
+def is_file_valid(file_name, file_list, zero_byte_list):
     """
-    Check if a file exists in the fetched file list.
+    Check if a file exists in the fetched file list and is not in the list of zero byte files.
 
     Args:
-        file_name (str): Name of the file from csv to check.
+        file_name (str): Name of the file to check.
         file_list (set): Set of filenames fetched from the bucket.
+        zero_byte_list (set): Set of filenames that have 0 byte size.
 
     Returns:
-        bool: True if the file exists, False otherwise.
+        bool: True if the file is valid (exists and is not zero-byte), False otherwise.
     """
 
-    return file_name in file_list
+    return file_name in file_list and not file_name in zero_byte_list
 
 
 def upload_missing_files(missing_files, directory_path, bucket, bucket_dir, file_extension):
@@ -108,13 +130,14 @@ def upload_missing_files(missing_files, directory_path, bucket, bucket_dir, file
             print(f"File {file_name} not found in local directory '{directory_path}'.")
 
 
-def get_missing_files_from_csv(csv_path, file_list, file_extension):
+def get_missing_files_from_csv(csv_path, file_list, zero_byte_list, file_extension):
     """
     Identify missing files by comparing IDs in a CSV file against the bucket file list.
 
     Args:
         csv_path (str): Path to the CSV file.
         file_list (set): Set of filenames fetched from the bucket.
+        zero_byte_list (set): Set of filenames that have 0 byte size.
 
     Returns:
         list: List of IDs that do not have corresponding files in the bucket.
@@ -130,7 +153,7 @@ def get_missing_files_from_csv(csv_path, file_list, file_extension):
                     continue
 
                 file_name = f"{id_value}.{file_extension}"
-                if not check_file_in_bucket(file_name, file_list):
+                if not is_file_valid(file_name, file_list, zero_byte_list):
                     missing_ids.append(id_value)
     except Exception as e:
         print(f"Error reading CSV file: {e}")
@@ -138,23 +161,48 @@ def get_missing_files_from_csv(csv_path, file_list, file_extension):
     return missing_ids
 
 
+def delete_missing_ids_from_database(missing_ids, table_name, column_name, supabase_client):
+    """
+    Deletes rows from the database where the specified column matches the IDs in missing_ids.
+
+    :param missing_ids: List of IDs that need to be deleted from the database.
+    :param table_name: Name of the database table.
+    :param column_name: Column name to match the IDs against.
+    :param supabase_client: Initialized Supabase client.
+    """
+    try:
+        response = (
+            supabase_client.table(table_name)
+            .delete()
+            .in_(column_name, missing_ids)
+            .eq("source", "archive_of_our_own")  # Additional condition
+            .execute()
+        )
+        print(f"Removed IDs from the database. Response: {response}")
+
+    except Exception as e:
+        print(f"An error occurred while removing data from the database: {e}")
+
+
 if __name__ == "__main__":
-    bucket = "archiveofourown"
+    bucket = "fictionpress"
     bucket_dir = "contents"
     # Specify the path to your CSV file
-    csv_file_path = "csv_file.csv"
+    csv_file_path = "input.csv"
 
-    file_extension = "epub"
+    file_extension = "txt"
 
     # Fetch the list of files in the bucket
-    bucket_file_list = fetch_file_list_from_bucket(bucket, bucket_dir)
+    bucket_file_list, zero_byte_file_list = fetch_file_list_from_bucket(bucket, bucket_dir)
 
     if bucket_file_list is None:
         print("Could not fetch bucket file list. Exiting.")
         exit()
 
     # Identify missing files
-    missing_file_ids = get_missing_files_from_csv(csv_file_path, bucket_file_list, file_extension)
+    missing_file_ids = get_missing_files_from_csv(
+        csv_file_path, bucket_file_list, zero_byte_file_list, file_extension
+    )
 
     # Print IDs that do not have a corresponding file
     if missing_file_ids:
@@ -162,9 +210,15 @@ if __name__ == "__main__":
         for id_ in missing_file_ids:
             print(id_)
 
+        print("missing file count", len(missing_file_ids))
         # Prompt user for action
-        retry = input("Do you want to retry uploading the missing files? (y/n): ").strip().lower()
-        if retry == "y":
+        print("Choose an option:")
+        print("1. Retry uploading the missing files.")
+        print("2. Remove the missing ID data from the database.")
+        print("3. Do nothing.")
+        choice = input("Enter your choice (1/2/3): ").strip()
+
+        if choice == "1":
             retry_directory = input("Enter the directory path to retry uploading from: ").strip()
 
             if os.path.isdir(retry_directory):
@@ -173,6 +227,10 @@ if __name__ == "__main__":
                 )
             else:
                 print(f"Invalid directory path: {retry_directory}")
+        elif choice == "2":
+            table_name = input("Enter the table name: ").strip()
+            column_name = input("Enter the column name: ").strip()
+            delete_missing_ids_from_database(missing_file_ids, table_name, column_name, supabase)
         else:
             print("No retry selected. Exiting.")
     else:
